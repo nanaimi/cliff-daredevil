@@ -1,5 +1,5 @@
-from typing import Optional, Callable
-import Box2D as b2
+from typing import Optional
+import Box2D as b2  # type: ignore
 import gym
 import numpy as np
 from gym import spaces
@@ -7,8 +7,20 @@ from gym.utils import seeding
 
 from .car_model import CarModel, CAR_WIDTH, CAR_HEIGHT
 
-ROAD_HIGHT = 25.0
+ROAD_HEIGHT = 23.0
 DT = 1 / 60
+
+
+def returning_to_conservative_safe_set_reward(
+    x_coord,
+    goal,
+):
+    reward = 0.0
+    if goal[0] < x_coord < goal[1]:
+        reward += 1.0
+    distance_to_goal = goal[0] - x_coord
+    reward -= np.square(distance_to_goal)
+    return reward
 
 
 class FrictionZoneListener(b2.b2ContactListener):
@@ -37,12 +49,17 @@ class CliffDaredevil(gym.Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
 
     def __init__(
-        self, render_mode: Optional[str] = None, friction_profile: float = 0.1
+        self,
+        render_mode: Optional[str] = None,
+        friction_profile: float = 0.1,
+        reward_fn=returning_to_conservative_safe_set_reward,
     ):
         self.contactListener_keepref = FrictionZoneListener(self)
+        self.reward_fn = reward_fn
         self.min_position = -5.0
         self.max_position = 75.0
         self.goal_zone = (50.0, 50.0 + CAR_WIDTH)
+        self.safe_zone = (10.0, 10.0 + CAR_WIDTH)
         self.cliff_edge = 0.3
         self.friction_start = 40.0
         self.friction = (
@@ -54,7 +71,7 @@ class CliffDaredevil(gym.Env):
         self._build_road()
         self.viewer = None
         self.action_space = spaces.Box(
-            np.array([-1, 0]), np.array([+1, +1]), dtype=np.float32
+            low=np.array([-1, 0]), high=np.array([+1, +1]), dtype=np.float32
         )  # gas, brake
         self.observation_space = spaces.Box(
             low=np.array([self.min_position, -32.0]),
@@ -72,8 +89,8 @@ class CliffDaredevil(gym.Env):
                 b2.b2FixtureDef(
                     shape=b2.b2EdgeShape(
                         vertices=[
-                            (self.min_position, ROAD_HIGHT),
-                            (self.goal_zone[1] + self.cliff_edge, ROAD_HIGHT),
+                            (self.min_position, ROAD_HEIGHT),
+                            (self.goal_zone[1] + self.cliff_edge, ROAD_HEIGHT),
                         ]
                     ),
                     friction=0.99,
@@ -81,8 +98,8 @@ class CliffDaredevil(gym.Env):
                 b2.b2FixtureDef(
                     shape=b2.b2EdgeShape(
                         vertices=[
-                            (self.friction_start, ROAD_HIGHT),
-                            (self.goal_zone[1], ROAD_HIGHT),
+                            (self.friction_start, ROAD_HEIGHT),
+                            (self.goal_zone[1], ROAD_HEIGHT),
                         ]
                     ),
                     friction=self.friction(0),
@@ -115,16 +132,23 @@ class CliffDaredevil(gym.Env):
             )
             friction = self.friction(progress)
             self.friction_zone.friction = friction
-        backward = x < self.min_position
-        reward = 0
-        if backward:
-            reward -= 1.0
         angle = self.car.hull.angle
-        terminated = y < ROAD_HIGHT or backward or np.abs(angle) > 0.9
-        if self.goal_zone[0] < x < self.goal_zone[1]:
-            reward += 1.0
-        distance = self.goal_zone[0] - x
-        reward -= np.abs(distance)
+        backward = x < self.min_position
+        terminated = y < ROAD_HEIGHT or backward or np.abs(angle) > 0.9
+        # Compute reward
+        if self.reward_fn is None:
+            reward = 0
+            if backward:
+                reward -= 1.0
+            if self.goal_zone[0] < x < self.goal_zone[1]:
+                reward += 1.0
+            distance = self.goal_zone[0] - x
+            reward -= np.square(distance)
+        else:
+            reward = self.reward_fn(
+                x,
+                self.safe_zone,
+            )
         cost = -(self.goal_zone[1] + self.cliff_edge - x)
         v = self.car.hull.linearVelocity[0]
         if self.render_mode == "human":
@@ -145,10 +169,11 @@ class CliffDaredevil(gym.Env):
     ):
         self._destroy()
         self.friction_zone.touch = False
-        #assert type(self.friction) is Callable
-        self.friction_zone.friction = self.friction(0.0)
-        position = self.np_random.uniform(low=-0.1, high=0.1)
-        self.car = CarModel(self.world, position, ROAD_HIGHT)
+        self.friction_zone.friction = self.friction(0.0)  # type: ignore
+        # Starting position after reset
+        position = self.np_random.uniform(low=self.min_position, high=self.max_position)
+        velocity = self.np_random.normal(loc=0.0, scale=(32 / 2))
+        self.car = CarModel(self.world, position, ROAD_HEIGHT, velocity)
         if self.render_mode == "human":
             self.render()
         return self.step(None)[0], {}
@@ -176,17 +201,17 @@ class CliffDaredevil(gym.Env):
             )
             sky.set_color(135 / 255, 206 / 255, 235 / 255)
             xs_ground = np.linspace(self.goal_zone[1], self.goal_zone[1] + 1.0, 25)
-            ys_ground = np.linspace(ROAD_HIGHT, 0.0, 25)
+            ys_ground = np.linspace(ROAD_HEIGHT, 0.0, 25)
             xs_ground += self.np_random.uniform(-0.75, 0.75, 25)
             ground = rendering.make_polygon(
-                [(self.min_position, 0.0), (self.min_position, ROAD_HIGHT)]
+                [(self.min_position, 0.0), (self.min_position, ROAD_HEIGHT)]
                 + [*zip(xs_ground, ys_ground)]
             )
             ground.set_color(237 / 255, 201 / 255, 175 / 255)
             oil = rendering.make_polyline(
                 [
-                    (self.friction_start, ROAD_HIGHT - 0.1),
-                    (self.goal_zone[1], ROAD_HIGHT - 0.1),
+                    (self.friction_start, ROAD_HEIGHT - 0.1),
+                    (self.goal_zone[1], ROAD_HEIGHT - 0.1),
                 ]
             )
             oil.set_linewidth(2)
@@ -224,9 +249,9 @@ class CliffDaredevil(gym.Env):
             self.backwheel_rim_transform = rendering.Transform()
             backwheel_rim.add_attr(self.backwheel_rim_transform)
 
-            def make_flag(position):
+            def make_flag(position, color=(0.8, 0.8, 0)):
                 flagx = position
-                flagy1 = ROAD_HIGHT
+                flagy1 = ROAD_HEIGHT
                 flagy2 = flagy1 + 2.0
                 flagpole = rendering.Line((flagx, flagy1), (flagx, flagy2))
                 flag = rendering.FilledPolygon(
@@ -236,11 +261,17 @@ class CliffDaredevil(gym.Env):
                         (flagx + 2.5, flagy2 - 0.5),
                     ]
                 )
-                flag.set_color(0.8, 0.8, 0)
+                flag.set_color(*color)
                 return flag, flagpole
 
             right_flag, right_flagpole = make_flag(self.goal_zone[0])
             left_flag, left_flagpole = make_flag(self.goal_zone[1])
+            safe_right_flag, safe_right_flagpole = make_flag(
+                self.safe_zone[0], color=(0.0, 0.0, 0.8)
+            )
+            safe_left_flag, safe_left_flagpole = make_flag(
+                self.safe_zone[1], color=(0.0, 0.0, 0.8)
+            )
             self.viewer.add_geom(sky)
             self.viewer.add_geom(sea)
             self.viewer.add_geom(ground)
@@ -251,6 +282,12 @@ class CliffDaredevil(gym.Env):
             self.viewer.add_geom(frontwheel_rim)
             self.viewer.add_geom(backwheel)
             self.viewer.add_geom(backwheel_rim)
+            # FLAGS SAFE ZONES
+            self.viewer.add_geom(safe_right_flagpole)
+            self.viewer.add_geom(safe_right_flag)
+            self.viewer.add_geom(safe_left_flagpole)
+            self.viewer.add_geom(safe_left_flag)
+            # FLAGS GOAL ZONES
             self.viewer.add_geom(right_flagpole)
             self.viewer.add_geom(right_flag)
             self.viewer.add_geom(left_flagpole)
@@ -273,7 +310,7 @@ class CliffDaredevil(gym.Env):
 
 
 if __name__ == "__main__":
-    from pyglet.window import key
+    from pyglet.window import key  # type: ignore
     from gym.wrappers import TimeLimit
 
     a = np.array([0.0, 0.0])
@@ -298,7 +335,7 @@ if __name__ == "__main__":
             a[1] = 0
 
     env: gym.Env = CliffDaredevil()
-    env = TimeLimit(env, 600)
+    env = TimeLimit(env, 200)
     env.render()
     env.viewer.window.on_key_press = key_press
     env.viewer.window.on_key_release = key_release
@@ -310,17 +347,20 @@ if __name__ == "__main__":
         steps = 0
         restart = False
         while True:
-            s, r, done, truncated, info = env.step(a)
+            s, r, terminated, truncated, info = env.step(a)
             total_reward += r
             total_cost += info["cost"]
-            if steps % 200 == 0 or done:
+            if steps % 1 == 0 or terminated:
                 print("\naction " + str(["{:+0.4f}".format(x) for x in a]))
+                print("step {} observation {}".format(env._elapsed_steps, s))
                 print("step {} total_reward {:+0.4f}".format(steps, total_reward))
                 print("step {} total_cost {:+0.4f}".format(steps, total_cost))
                 print("step {} cost {:+0.4f}".format(steps, info["cost"]))
                 print("step {} reward {:+0.4f}".format(steps, r))
+                print("step {} terminal {}".format(steps, terminated))
+                print("step {} truncated {}".format(steps, truncated))
             steps += 1
-            isopen, _ = env.render()
-            if done or restart or not isopen:
+            isopen, _ = env.render()  # type: ignore
+            if terminated or truncated or restart or not isopen:
                 break
     env.close()

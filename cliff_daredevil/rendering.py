@@ -13,24 +13,25 @@ from gym import error
 
 try:
     import pyglet
-except ImportError as e:
+except ImportError:
     raise ImportError(
         """
     Cannot import pyglet.
     HINT: you can install pyglet directly via 'pip install pyglet'.
-    But if you really just want to install all Gym dependencies and not have to think about it,
-    'pip install -e .[all]' or 'pip install gym[all]' will do it.
-    """
+    But if you really just want to install all Gym dependencies and not
+    have to think about it, 'pip install -e .[all]' or 'pip install gym[all]' will do it.
+    """,
     )
 
 try:
-    from pyglet.gl import *
-except ImportError as e:
+    from pyglet.gl import *  # noqa
+except ImportError:
     raise ImportError(
         """
     Error occurred while running `from pyglet.gl import *`
-    HINT: make sure you have OpenGL installed. On Ubuntu, you can run 'apt-get install python-opengl'.
-    If you're running on a server, you may need a virtual frame buffer; something like this should work:
+    HINT: make sure you have OpenGL installed. On Ubuntu,
+    you can run 'apt-get install python-opengl'. If you're running on a server,
+    you may need a virtual frame buffer; something like this should work:
     'xvfb-run -s \"-screen 0 1400x900x24\" python <your_script.py>'
     """
     )
@@ -89,12 +90,13 @@ class Viewer:
         self.onetime_geoms = []
         self.transform = Transform()
 
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glEnable(GL_BLEND)  # noqa
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)  # noqa
 
     def close(self):
         if self.isopen and sys.meta_path:
-            # ^^^ check sys.meta_path to avoid 'ImportError: sys.meta_path is None, Python is likely shutting down'
+            # ^^^ check sys.meta_path to avoid 'ImportError: sys.meta_path is None,
+            # Python is likely shutting down'
             self.window.close()
             self.isopen = False
 
@@ -116,7 +118,7 @@ class Viewer:
         self.onetime_geoms.append(geom)
 
     def render(self, return_rgb_array=False):
-        glClearColor(1, 1, 1, 1)
+        glClearColor(1, 1, 1, 1)  # noqa
         self.window.clear()
         self.window.switch_to()
         self.window.dispatch_events()
@@ -226,15 +228,15 @@ class Transform(Attr):
         self.set_scale(*scale)
 
     def enable(self):
-        glPushMatrix()
-        glTranslatef(
+        glPushMatrix()  # noqa
+        glTranslatef(  # noqa
             self.translation[0], self.translation[1], 0
         )  # translate to GL loc ppint
-        glRotatef(RAD2DEG * self.rotation, 0, 0, 1.0)
-        glScalef(self.scale[0], self.scale[1], 1)
+        glRotatef(RAD2DEG * self.rotation, 0, 0, 1.0)  # noqa
+        glScalef(self.scale[0], self.scale[1], 1)  # noqa
 
     def disable(self):
-        glPopMatrix()
+        glPopMatrix()  # noqa
 
     def set_translation(self, newx, newy):
         self.translation = (float(newx), float(newy))
@@ -251,7 +253,7 @@ class Color(Attr):
         self.vec4 = vec4
 
     def enable(self):
-        glColor4f(*self.vec4)
+        glColor4f(*self.vec4)  # noqa
 
 
 class LineStyle(Attr):
@@ -259,11 +261,11 @@ class LineStyle(Attr):
         self.style = style
 
     def enable(self):
-        glEnable(GL_LINE_STIPPLE)
-        glLineStipple(1, self.style)
+        glEnable(GL_LINE_STIPPLE)  # noqa
+        glLineStipple(1, self.style)  # noqa
 
     def disable(self):
-        glDisable(GL_LINE_STIPPLE)
+        glDisable(GL_LINE_STIPPLE)  # noqa
 
 
 class LineWidth(Attr):
@@ -271,7 +273,7 @@ class LineWidth(Attr):
         self.stroke = stroke
 
     def enable(self):
-        glLineWidth(self.stroke)
+        glLineWidth(self.stroke)  # noqa
 
 
 class Point(Geom):
@@ -279,9 +281,9 @@ class Point(Geom):
         Geom.__init__(self)
 
     def render1(self):
-        glBegin(GL_POINTS)  # draw point
-        glVertex3f(0.0, 0.0, 0.0)
-        glEnd()
+        glBegin(GL_POINTS)  # draw point # noqa
+        glVertex3f(0.0, 0.0, 0.0)  # noqa
+        glEnd()  # noqa
 
 
 class FilledPolygon(Geom):
@@ -291,14 +293,14 @@ class FilledPolygon(Geom):
 
     def render1(self):
         if len(self.v) == 4:
-            glBegin(GL_QUADS)
+            glBegin(GL_QUADS)  # noqa
         elif len(self.v) > 4:
-            glBegin(GL_POLYGON)
+            glBegin(GL_POLYGON)  # noqa
         else:
-            glBegin(GL_TRIANGLES)
+            glBegin(GL_TRIANGLES)  # noqa
         for p in self.v:
-            glVertex3f(p[0], p[1], 0)  # draw each vertex
-        glEnd()
+            glVertex3f(p[0], p[1], 0)  # draw each vertex # noqa
+        glEnd()  # noqa
 
 
 def make_circle(radius=10, res=30, filled=True):
@@ -354,10 +356,10 @@ class PolyLine(Geom):
         self.add_attr(self.linewidth)
 
     def render1(self):
-        glBegin(GL_LINE_LOOP if self.close else GL_LINE_STRIP)
+        glBegin(GL_LINE_LOOP if self.close else GL_LINE_STRIP)  # noqa
         for p in self.v:
-            glVertex3f(p[0], p[1], 0)  # draw each vertex
-        glEnd()
+            glVertex3f(p[0], p[1], 0)  # draw each vertex # noqa
+        glEnd()  # noqa
 
     def set_linewidth(self, x):
         self.linewidth.stroke = x
@@ -372,10 +374,10 @@ class Line(Geom):
         self.add_attr(self.linewidth)
 
     def render1(self):
-        glBegin(GL_LINES)
-        glVertex2f(*self.start)
-        glVertex2f(*self.end)
-        glEnd()
+        glBegin(GL_LINES)  # noqa
+        glVertex2f(*self.start)  # noqa
+        glVertex2f(*self.end)  # noqa
+        glEnd()  # noqa
 
 
 class Image(Geom):
@@ -436,7 +438,9 @@ class SimpleImageViewer:
             arr.shape[1], arr.shape[0], "RGB", arr.tobytes(), pitch=arr.shape[1] * -3
         )
         texture = image.get_texture()
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(  # noqa
+            gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST  # noqa
+        )  # noqa
         texture.width = self.width
         texture.height = self.height
         self.window.clear()
@@ -447,7 +451,8 @@ class SimpleImageViewer:
 
     def close(self):
         if self.isopen and sys.meta_path:
-            # ^^^ check sys.meta_path to avoid 'ImportError: sys.meta_path is None, Python is likely shutting down'
+            # ^^^ check sys.meta_path to avoid 'ImportError: sys.meta_path is None,
+            # Python is likely shutting down'
             self.window.close()
             self.isopen = False
 
