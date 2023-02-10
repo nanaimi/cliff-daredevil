@@ -1,26 +1,16 @@
-from typing import Optional
+import copy
+from typing import Optional, Tuple
+
 import Box2D as b2  # type: ignore
 import gym
 import numpy as np
 from gym import spaces
 from gym.utils import seeding
 
-from .car_model import CarModel, CAR_WIDTH, CAR_HEIGHT
+from .car_model import CAR_HEIGHT, CAR_WIDTH, CarModel
 
 ROAD_HEIGHT = 23.0
 DT = 1 / 60
-
-
-def returning_to_conservative_safe_set_reward(
-    x_coord,
-    goal,
-):
-    reward = 0.0
-    if goal[0] < x_coord < goal[1]:
-        reward += 1.0
-    distance_to_goal = goal[0] - x_coord
-    reward -= np.square(distance_to_goal)
-    return reward
 
 
 class FrictionZoneListener(b2.b2ContactListener):
@@ -52,10 +42,15 @@ class CliffDaredevil(gym.Env):
         self,
         render_mode: Optional[str] = None,
         friction_profile: float = 0.1,
-        reward_fn=returning_to_conservative_safe_set_reward,
+        safe_zone_reward: bool = True,
+        old_gym_api: bool = False,
     ):
         self.contactListener_keepref = FrictionZoneListener(self)
-        self.reward_fn = reward_fn
+        self.safe_zone_reward = safe_zone_reward
+        self.old_gym_api = old_gym_api
+        self.reward_fn = None
+        if safe_zone_reward:
+            self.reward_fn = self._returning_to_conservative_safe_set_reward
         self.min_position = -5.0
         self.max_position = 75.0
         self.goal_zone = (50.0, 50.0 + CAR_WIDTH)
@@ -80,8 +75,38 @@ class CliffDaredevil(gym.Env):
         )  # position, velocity
         self.car: Optional[CarModel] = None
         self.render_mode = render_mode
+        self._set_max_distance_to_safe_zone()
+        self._isopen = None
         self.seed()
         self.reset()
+
+    def _returning_to_conservative_safe_set_reward(
+        self, x_coord: float, goal: Tuple[float, float]
+    ) -> float:
+        reward = 0.0
+        goal_mean = (goal[0] + goal[1]) / 2
+        abs_distance_to_goal = np.abs(goal_mean - x_coord)
+        reward = np.square(
+            np.clip(
+                (self.max_disance_to_safe_zone - abs_distance_to_goal)
+                / self.max_disance_to_safe_zone,
+                0.0,
+                1.0,
+            )
+        )
+        if goal[0] < x_coord < goal[1]:
+            reward += 1.0
+        return float(reward)
+
+    def _set_max_distance_to_safe_zone(self):
+        safe_mean = (self.safe_zone[0] + self.safe_zone[1]) / 2
+        max_distance_to_safe = float(
+            max(
+                np.abs(safe_mean - self.min_position),
+                np.abs(safe_mean - self.max_position),
+            )
+        )
+        self.max_disance_to_safe_zone = max_distance_to_safe
 
     def _build_road(self):
         self.ground = self.world.CreateStaticBody(
@@ -134,7 +159,7 @@ class CliffDaredevil(gym.Env):
             self.friction_zone.friction = friction
         angle = self.car.hull.angle
         backward = x < self.min_position
-        terminated = y < ROAD_HEIGHT or backward or np.abs(angle) > 0.9
+        terminated = bool(y < ROAD_HEIGHT or backward or np.abs(angle) > 0.9)
         # Compute reward
         if self.reward_fn is None:
             reward = 0
@@ -144,15 +169,21 @@ class CliffDaredevil(gym.Env):
                 reward += 1.0
             distance = self.goal_zone[0] - x
             reward -= np.square(distance)
-        else:
-            reward = self.reward_fn(
-                x,
-                self.safe_zone,
-            )
+        elif self.safe_zone_reward:
+            reward = self.reward_fn(x, self.safe_zone)
         cost = -(self.goal_zone[1] + self.cliff_edge - x)
         v = self.car.hull.linearVelocity[0]
         if self.render_mode == "human":
             self.render()
+
+        if self.old_gym_api:
+            return (
+                np.array([x, v], np.float32),
+                reward,
+                terminated,
+                {"cost": cost},
+            )
+
         return (
             np.array([x, v], np.float32),
             reward,
@@ -171,11 +202,16 @@ class CliffDaredevil(gym.Env):
         self.friction_zone.touch = False
         self.friction_zone.friction = self.friction(0.0)  # type: ignore
         # Starting position after reset
-        position = self.np_random.uniform(low=self.min_position, high=self.max_position)
+        position = self.np_random.uniform(
+            low=self.min_position, high=self.max_position - 25.0
+        )
         velocity = self.np_random.normal(loc=0.0, scale=(32 / 2))
-        self.car = CarModel(self.world, position, ROAD_HEIGHT, velocity)
+        self.car = CarModel(self.world, position, ROAD_HEIGHT + 0.5, velocity)
         if self.render_mode == "human":
             self.render()
+
+        if self.old_gym_api:
+            return self.step(None)[0]
         return self.step(None)[0], {}
 
     def _destroy(self):
@@ -183,7 +219,7 @@ class CliffDaredevil(gym.Env):
             return
         self.car.destroy()
 
-    def render(self):
+    def render(self, mode="rgb_array"):
         mode = self.render_mode
         screen_width, screen_height = 640, 320
         if self.viewer is None:
@@ -301,7 +337,15 @@ class CliffDaredevil(gym.Env):
         self.frontwheel_rim_transform.set_rotation(self.car.wheels[0].angle)
         self.backwheel_rim_transform.set_rotation(self.car.wheels[1].angle)
         self.backwheel_rim_transform.set_translation(*self.car.wheels[1].position)
-        return self.viewer.render(return_rgb_array=mode == "rgb_array")
+        self._isopen, frame = self.viewer.render(return_rgb_array=mode == "rgb_array")
+        return frame
+
+    @property
+    def isopen(self):
+        if self._isopen is None:
+            print("Warning: isopen not defined for this viewer. Returning False.")
+            return False
+        return self._isopen
 
     def close(self):
         if self.viewer:
@@ -310,8 +354,8 @@ class CliffDaredevil(gym.Env):
 
 
 if __name__ == "__main__":
-    from pyglet.window import key  # type: ignore
     from gym.wrappers import TimeLimit
+    from pyglet.window import key  # type: ignore
 
     a = np.array([0.0, 0.0])
 
@@ -335,7 +379,7 @@ if __name__ == "__main__":
             a[1] = 0
 
     env: gym.Env = CliffDaredevil()
-    env = TimeLimit(env, 200)
+    env = TimeLimit(env, 1000)
     env.render()
     env.viewer.window.on_key_press = key_press
     env.viewer.window.on_key_release = key_release
@@ -352,15 +396,33 @@ if __name__ == "__main__":
             total_cost += info["cost"]
             if steps % 1 == 0 or terminated:
                 print("\naction " + str(["{:+0.4f}".format(x) for x in a]))
-                print("step {} observation {}".format(env._elapsed_steps, s))
+                print(
+                    "step {} observation {} type {}".format(
+                        env._elapsed_steps, s, type(s)
+                    )
+                )
                 print("step {} total_reward {:+0.4f}".format(steps, total_reward))
                 print("step {} total_cost {:+0.4f}".format(steps, total_cost))
-                print("step {} cost {:+0.4f}".format(steps, info["cost"]))
-                print("step {} reward {:+0.4f}".format(steps, r))
-                print("step {} terminal {}".format(steps, terminated))
-                print("step {} truncated {}".format(steps, truncated))
+                print(
+                    "step {} cost {:+0.4f} type {}".format(
+                        steps, info["cost"], type(info["cost"])
+                    )
+                )
+                print("step {} reward {:+0.4f} type {}".format(steps, r, type(r)))
+                print(
+                    "step {} terminal {} type {}".format(
+                        steps, terminated, type(terminated)
+                    )
+                )
+                print(
+                    "step {} truncated {} type {}".format(
+                        steps, truncated, type(truncated)
+                    )
+                )
             steps += 1
-            isopen, _ = env.render()  # type: ignore
+            _ = env.render()  # type: ignore
+            isopen = copy.copy(env.isopen)
+
             if terminated or truncated or restart or not isopen:
                 break
     env.close()
