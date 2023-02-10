@@ -103,7 +103,7 @@ class CliffDaredevil(gym.Env):
         max_distance_to_safe = float(
             max(
                 np.abs(safe_mean - self.min_position),
-                np.abs(safe_mean - self.max_position),
+                np.abs(safe_mean - self.max_position - 23.0),
             )
         )
         self.max_disance_to_safe_zone = max_distance_to_safe
