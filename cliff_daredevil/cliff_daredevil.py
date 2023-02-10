@@ -94,8 +94,6 @@ class CliffDaredevil(gym.Env):
                 1.0,
             )
         )
-        if goal[0] < x_coord < goal[1]:
-            reward += 1.0
         return float(reward)
 
     def _set_max_distance_to_safe_zone(self):
