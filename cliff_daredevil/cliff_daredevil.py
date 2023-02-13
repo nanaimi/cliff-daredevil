@@ -142,8 +142,8 @@ class CliffDaredevil(gym.Env):
         truncated = False
         if action is not None:
             action = np.clip(action, -1.0, 1.0)
-            self.car.gas(action[0])
-            self.car.brake(action[1])
+            self.car.gas(float(action[0]))
+            self.car.brake(float(action[1]))
         self.car.step()
         self.world.Step(DT, 6 * 30, 2 * 30)
         x, y = self.car.hull.position
