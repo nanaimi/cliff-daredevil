@@ -75,7 +75,8 @@ class CliffDaredevil(gym.Env):
         )  # position, velocity
         self.car: Optional[CarModel] = None
         self.render_mode = render_mode
-        self._set_max_distance_to_safe_zone()
+        self.max_distance_to_goal_zone = self._set_max_distance_to_zone(self.goal_zone)
+        self.max_distance_to_safe_zone = self._set_max_distance_to_zone(self.safe_zone)
         self._isopen = None
         self.seed()
         self.reset()
@@ -88,23 +89,23 @@ class CliffDaredevil(gym.Env):
         abs_distance_to_goal = np.abs(goal_mean - x_coord)
         reward = np.square(
             np.clip(
-                (self.max_disance_to_safe_zone - abs_distance_to_goal)
-                / self.max_disance_to_safe_zone,
+                (self.max_distance_to_safe_zone - abs_distance_to_goal)
+                / self.max_distance_to_safe_zone,
                 0.0,
                 1.0,
             )
         )
         return float(reward)
 
-    def _set_max_distance_to_safe_zone(self):
-        safe_mean = (self.safe_zone[0] + self.safe_zone[1]) / 2
-        max_distance_to_safe = float(
+    def _set_max_distance_to_zone(self, zone: Tuple[float, float]) -> float:
+        mean = (zone[0] + zone[1]) / 2
+        max_distance_to_zone = float(
             max(
-                np.abs(safe_mean - self.min_position),
-                np.abs(safe_mean - self.max_position - 23.0),
+                np.abs(mean - self.min_position),
+                np.abs(mean - self.max_position - 23.0),
             )
         )
-        self.max_disance_to_safe_zone = max_distance_to_safe
+        return max_distance_to_zone
 
     def _build_road(self):
         self.ground = self.world.CreateStaticBody(
@@ -174,7 +175,10 @@ class CliffDaredevil(gym.Env):
             reward = self.reward_fn(x, self.safe_zone)
 
         # Compute cost
-        cost = -(self.goal_zone[1] + self.cliff_edge - x)
+        cost = (
+            -((self.goal_zone[0] + self.goal_zone[1]) / 2 + self.cliff_edge - x)
+            / self.max_distance_to_goal_zone
+        )
 
         # New state
         v = self.car.hull.linearVelocity[0]
