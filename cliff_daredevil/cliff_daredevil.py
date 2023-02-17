@@ -40,7 +40,7 @@ class CliffDaredevil(gym.Env):
 
     def __init__(
         self,
-        render_mode: Optional[str] = None,
+        render_mode: Optional[str] = "rgb_array",
         friction_profile: float = 0.1,
         safe_zone_reward: bool = True,
         old_gym_api: bool = False,
@@ -144,6 +144,7 @@ class CliffDaredevil(gym.Env):
             action = np.clip(action, -1.0, 1.0)
             self.car.gas(float(action[0]))
             self.car.brake(float(action[1]))
+
         self.car.step()
         self.world.Step(DT, 6 * 30, 2 * 30)
         x, y = self.car.hull.position
@@ -155,9 +156,11 @@ class CliffDaredevil(gym.Env):
             )
             friction = self.friction(progress)
             self.friction_zone.friction = friction
+
         angle = self.car.hull.angle
         backward = x < self.min_position
         terminated = bool(y < ROAD_HEIGHT or backward or np.abs(angle) > 0.9)
+
         # Compute reward
         if self.reward_fn is None:
             reward = 0
@@ -169,8 +172,13 @@ class CliffDaredevil(gym.Env):
             reward -= np.square(distance)
         elif self.safe_zone_reward:
             reward = self.reward_fn(x, self.safe_zone)
+
+        # Compute cost
         cost = -(self.goal_zone[1] + self.cliff_edge - x)
+
+        # New state
         v = self.car.hull.linearVelocity[0]
+
         if self.render_mode == "human":
             self.render()
 
@@ -205,6 +213,24 @@ class CliffDaredevil(gym.Env):
         )
         velocity = self.np_random.normal(loc=0.0, scale=(32 / 2))
         self.car = CarModel(self.world, position, ROAD_HEIGHT + 0.5, velocity)
+
+        if self.render_mode == "human":
+            self.render()
+
+        if self.old_gym_api:
+            return self.step(None)[0]
+        return self.step(None)[0], {}
+
+    def manual_reset(self, x_coord: float, vel: float):
+        self.reset()
+        self._destroy()
+        self.friction_zone.touch = False
+        self.friction_zone.friction = self.friction(0.0)  # type: ignore
+        # Starting position after reset
+        position = x_coord
+        velocity = vel
+        self.car = CarModel(self.world, position, ROAD_HEIGHT + 0.5, velocity)
+
         if self.render_mode == "human":
             self.render()
 
@@ -217,7 +243,7 @@ class CliffDaredevil(gym.Env):
             return
         self.car.destroy()
 
-    def render(self, mode="rgb_array"):
+    def render(self):
         mode = self.render_mode
         screen_width, screen_height = 640, 320
         if self.viewer is None:
@@ -335,7 +361,9 @@ class CliffDaredevil(gym.Env):
         self.frontwheel_rim_transform.set_rotation(self.car.wheels[0].angle)
         self.backwheel_rim_transform.set_rotation(self.car.wheels[1].angle)
         self.backwheel_rim_transform.set_translation(*self.car.wheels[1].position)
-        self._isopen, frame = self.viewer.render(return_rgb_array=mode == "rgb_array")
+
+        self._isopen, frame = self.viewer.render(return_rgb_array=(mode == "rgb_array"))
+
         return frame
 
     @property
@@ -384,6 +412,7 @@ if __name__ == "__main__":
     isopen = True
     while isopen:
         env.reset()
+        env.manual_reset(10, 0)
         total_reward = 0.0
         total_cost = 0.0
         steps = 0
