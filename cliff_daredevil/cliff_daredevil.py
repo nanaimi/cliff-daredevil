@@ -50,7 +50,7 @@ class CliffDaredevil(gym.Env):
         self.old_gym_api = old_gym_api
         self.reward_fn = None
         if safe_zone_reward:
-            self.reward_fn = self._returning_to_conservative_safe_set_reward
+            self.reward_fn = self._returning_to_goal_reward
         self.min_position = -5.0
         self.max_position = 75.0
         self.goal_zone = (50.0, 50.0 + CAR_WIDTH)
@@ -81,19 +81,17 @@ class CliffDaredevil(gym.Env):
         self.seed()
         self.reset()
 
-    def _returning_to_conservative_safe_set_reward(
+    def _returning_to_goal_reward(
         self, x_coord: float, goal: Tuple[float, float]
     ) -> float:
         reward = 0.0
         goal_mean = (goal[0] + goal[1]) / 2
         abs_distance_to_goal = np.abs(goal_mean - x_coord)
-        reward = np.square(
-            np.clip(
-                (self.max_distance_to_safe_zone - abs_distance_to_goal)
-                / self.max_distance_to_safe_zone,
-                0.0,
-                1.0,
-            )
+        reward = np.clip(
+            (self.max_distance_to_safe_zone - abs_distance_to_goal)
+            / self.max_distance_to_safe_zone,
+            0.0,
+            1.0,
         )
         return float(reward)
 
