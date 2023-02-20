@@ -100,7 +100,7 @@ class CliffDaredevil(gym.Env):
         max_distance_to_zone = float(
             max(
                 np.abs(mean - self.min_position),
-                np.abs(mean - self.max_position - 23.0),
+                np.abs(mean - (self.max_position - 23.0)),
             )
         )
         return max_distance_to_zone
