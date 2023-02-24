@@ -88,14 +88,13 @@ class CliffDaredevil(gym.Env):
         reward = 0.0
         goal_mean = (goal[0] + goal[1]) / 2
         abs_distance_to_goal = np.abs(goal_mean - x_coord)
-        reward = np.square(
-            np.clip(
-                (self.max_distance_to_safe_zone - abs_distance_to_goal)
-                / self.max_distance_to_safe_zone,
-                0.0,
-                1.0,
-            )
+        reward = np.clip(
+            (self.max_distance_to_safe_zone - abs_distance_to_goal)
+            / self.max_distance_to_safe_zone,
+            0.0,
+            1.0,
         )
+
         # if x_coord >= goal[0] and x_coord <= goal[1]:
         #     reward += 1.0
         return float(reward)
