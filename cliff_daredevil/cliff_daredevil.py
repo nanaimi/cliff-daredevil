@@ -42,6 +42,7 @@ class CliffDaredevil(gym.Env):
         self,
         render_mode: Optional[str] = "rgb_array",
         friction_profile: float = 0.1,
+        friction_start: float = 40.0,
         safe_zone_reward: bool = True,
         old_gym_api: bool = False,
     ):
@@ -56,7 +57,7 @@ class CliffDaredevil(gym.Env):
         self.goal_zone = (50.0, 50.0 + CAR_WIDTH)
         self.safe_zone = (10.0, 10.0 + CAR_WIDTH)
         self.cliff_edge = 0.3
-        self.friction_start = 40.0
+        self.friction_start = friction_start
         self.friction = (
             friction_profile
             if callable(friction_profile)
@@ -87,22 +88,22 @@ class CliffDaredevil(gym.Env):
         reward = 0.0
         goal_mean = (goal[0] + goal[1]) / 2
         abs_distance_to_goal = np.abs(goal_mean - x_coord)
-        reward = np.square(
-            np.clip(
-                (self.max_distance_to_safe_zone - abs_distance_to_goal)
-                / self.max_distance_to_safe_zone,
-                0.0,
-                1.0,
-            )
+        reward = np.clip(
+            (self.max_distance_to_safe_zone - abs_distance_to_goal)
+            / self.max_distance_to_safe_zone,
+            0.0,
+            1.0,
         )
+        # if x_coord >= goal[0] and x_coord <= goal[1]:
+        #     reward += 1.0
         return float(reward)
 
     def _set_max_distance_to_zone(self, zone: Tuple[float, float]) -> float:
         mean = (zone[0] + zone[1]) / 2
         max_distance_to_zone = float(
             max(
-                np.abs(mean - self.min_position),
-                np.abs(mean - (self.max_position - 23.0)),
+                np.abs(mean - (self.min_position + 3)),
+                np.abs(mean - (self.max_position - 25.0)),
             )
         )
         return max_distance_to_zone
@@ -213,7 +214,7 @@ class CliffDaredevil(gym.Env):
         self.friction_zone.friction = self.friction(0.0)  # type: ignore
         # Starting position after reset
         position = self.np_random.uniform(
-            low=self.min_position, high=self.max_position - 25.0
+            low=self.min_position + 3, high=self.max_position - 25.0
         )
         velocity = self.np_random.normal(loc=0.0, scale=(32 / 2))
         self.car = CarModel(self.world, position, ROAD_HEIGHT + 0.5, velocity)
@@ -408,7 +409,7 @@ if __name__ == "__main__":
         if k == key.SPACE:
             a[1] = 0
 
-    env: gym.Env = CliffDaredevil()
+    env: gym.Env = CliffDaredevil(friction_profile=0.01, friction_start=25.0)
     env = TimeLimit(env, 1000)
     env.render()
     env.viewer.window.on_key_press = key_press
@@ -416,7 +417,7 @@ if __name__ == "__main__":
     isopen = True
     while isopen:
         env.reset()
-        env.manual_reset(10, 0)
+        env.manual_reset(env.max_position - 25, 0)
         total_reward = 0.0
         total_cost = 0.0
         steps = 0
