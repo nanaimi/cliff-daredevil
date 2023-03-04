@@ -52,6 +52,8 @@ class CliffDaredevil(gym.Env):
         self.reward_fn = None
         if safe_zone_reward:
             self.reward_fn = self._returning_to_goal_reward
+        if not safe_zone_reward:
+            self.reward_fn = self._driving_to_edge_reward
         self.min_position = -5.0
         self.max_position = 75.0
         self.goal_zone = (50.0, 50.0 + CAR_WIDTH)
@@ -88,16 +90,26 @@ class CliffDaredevil(gym.Env):
         reward = 0.0
         goal_mean = (goal[0] + goal[1]) / 2
         abs_distance_to_goal = np.abs(goal_mean - x_coord)
-        reward = np.square(
-            np.clip(
-                (self.max_distance_to_safe_zone - abs_distance_to_goal)
-                / self.max_distance_to_safe_zone,
-                0.0,
-                1.0,
-            )
+        reward = np.clip(
+            (self.max_distance_to_safe_zone - abs_distance_to_goal)
+            / self.max_distance_to_safe_zone,
+            0.0,
+            1.0,
         )
-        # if x_coord >= goal[0] and x_coord <= goal[1]:
-        #     reward += 1.0
+        return float(reward)
+
+    def _driving_to_edge_reward(
+        self, x_coord: float, goal: Tuple[float, float]
+    ) -> float:
+        reward = 0.0
+        goal_mean = (goal[0] + goal[1]) / 2
+        abs_distance_to_goal = np.abs(goal_mean - x_coord)
+        reward = np.clip(
+            (self.max_distance_to_goal_zone - abs_distance_to_goal)
+            / self.max_distance_to_goal_zone,
+            0.0,
+            1.0,
+        )
         return float(reward)
 
     def _set_max_distance_to_zone(self, zone: Tuple[float, float]) -> float:
@@ -162,20 +174,28 @@ class CliffDaredevil(gym.Env):
             self.friction_zone.friction = friction
 
         angle = self.car.hull.angle
-        backward = x < self.min_position
+        backward = x <= self.min_position
         terminated = bool(y < ROAD_HEIGHT or backward or np.abs(angle) > 0.9)
 
         # Compute reward
-        if self.reward_fn is None:
-            reward = 0
+        if not self.safe_zone_reward:
+            reward = 0.0
+            reward = self.reward_fn(x, self.goal_zone)
+            if (self.goal_zone[0] + self.goal_zone[1]) / 2 < x:
+                reward -= 2.0
+            if backward:
+                reward -= 1.0
+        elif self.safe_zone_reward:
+            reward = 0.0
+            reward = self.reward_fn(x, self.safe_zone)
+        elif self.reward_fn is None:
+            reward = 0.0
             if backward:
                 reward -= 1.0
             if self.goal_zone[0] < x < self.goal_zone[1]:
                 reward += 1.0
             distance = self.goal_zone[0] - x
             reward -= np.square(distance)
-        elif self.safe_zone_reward:
-            reward = self.reward_fn(x, self.safe_zone)
 
         # Compute cost
         cost = (
@@ -218,7 +238,7 @@ class CliffDaredevil(gym.Env):
         position = self.np_random.uniform(
             low=self.min_position + 3, high=self.max_position - 25.0
         )
-        velocity = self.np_random.normal(loc=0.0, scale=(32 / 2))
+        velocity = self.np_random.normal(loc=0.0, scale=(32 / 3))
         self.car = CarModel(self.world, position, ROAD_HEIGHT + 0.5, velocity)
 
         if self.render_mode == "human":
@@ -250,13 +270,13 @@ class CliffDaredevil(gym.Env):
             return
         self.car.destroy()
 
-    def render(self):
+    def render(self, mode: Optional[str] = None):
         mode = self.render_mode
         screen_width, screen_height = 640, 320
         if self.viewer is None:
             import cliff_daredevil.rendering as rendering
 
-            self.viewer = rendering.Viewer(screen_width, screen_height)
+            self.viewer = rendering.Viewer(screen_width, screen_height)  # type: ignore
             self.viewer.set_bounds(self.min_position, self.max_position, 0.0, 40.0)
             sky = rendering.make_polygon(
                 [
@@ -359,16 +379,23 @@ class CliffDaredevil(gym.Env):
             self.viewer.add_geom(right_flag)
             self.viewer.add_geom(left_flagpole)
             self.viewer.add_geom(left_flag)
-        pos = self.car.hull.position
+        pos = self.car.hull.position  # type: ignore
         self.car_transform.set_translation(*pos)
-        self.car_transform.set_rotation(self.car.hull.angle)
+        self.car_transform.set_rotation(self.car.hull.angle)  # type: ignore
         self.frontwheel_rim_transform.set_translation(*pos)
         self.backwheel_rim_transform.set_translation(*pos)
-        self.frontwheel_rim_transform.set_translation(*self.car.wheels[0].position)
-        self.frontwheel_rim_transform.set_rotation(self.car.wheels[0].angle)
-        self.backwheel_rim_transform.set_rotation(self.car.wheels[1].angle)
-        self.backwheel_rim_transform.set_translation(*self.car.wheels[1].position)
-
+        self.frontwheel_rim_transform.set_translation(
+            *self.car.wheels[0].position  # type: ignore
+        )
+        self.frontwheel_rim_transform.set_rotation(
+            self.car.wheels[0].angle  # type: ignore
+        )
+        self.backwheel_rim_transform.set_rotation(
+            self.car.wheels[1].angle  # type: ignore
+        )
+        self.backwheel_rim_transform.set_translation(
+            *self.car.wheels[1].position  # type: ignore
+        )
         self._isopen, frame = self.viewer.render(return_rgb_array=(mode == "rgb_array"))
 
         return frame
@@ -411,8 +438,10 @@ if __name__ == "__main__":
         if k == key.SPACE:
             a[1] = 0
 
-    env: gym.Env = CliffDaredevil(friction_profile=0.01, friction_start=25.0)
-    env = TimeLimit(env, 1000)
+    env: gym.Env = CliffDaredevil(
+        friction_profile=0.1, friction_start=40.0, safe_zone_reward=False
+    )
+    env = TimeLimit(env, 500)
     env.render()
     env.viewer.window.on_key_press = key_press
     env.viewer.window.on_key_release = key_release
