@@ -181,7 +181,7 @@ class CliffDaredevil(gym.Env):
         if not self.safe_zone_reward:
             reward = 0.0
             reward = self.reward_fn(x, self.goal_zone)
-            if (self.goal_zone[0] + self.goal_zone[1]) / 2 < x:
+            if self.goal_zone[1] <= x:
                 reward -= 2.0
             if backward:
                 reward -= 1.0
@@ -448,7 +448,7 @@ if __name__ == "__main__":
     isopen = True
     while isopen:
         env.reset()
-        env.manual_reset(env.max_position - 25, 0)
+        env.manual_reset(53, 0)
         total_reward = 0.0
         total_cost = 0.0
         steps = 0
